@@ -9,7 +9,8 @@ noiseLevel = 0.02;
 maxCost = 2.5*noiseLevel;
 forgetRate = 1.1;
 anchorAccuracy = 1*noiseLevel;
-listeningRange = 0.7;
+listeningRange = 0.8;
+plotRate = 5;
 
 %init nodes
 knownNodes = struct('name',{},'posEst',{},'vel',{},'accuracy',{}, 'dist',{},'timeStamp',{});
@@ -38,12 +39,14 @@ axis([0 timeSteps 0.1 1]);
 hold on
 
 for t = 1:timeSteps
-    
-    figure(1);
-    clf
-    axis([-0.1 1.1 -0.1 1.1]);
-    grid on
-    hold on
+    plotThisRound = mod(t,plotRate) == 1;
+    if plotThisRound
+        figure(1);
+        clf
+        axis([-0.1 1.1 -0.1 1.1]);
+        grid on
+        hold on
+    end
     
     %update pos for each node
     for n = (numberOfFixedNodes+1):N
@@ -64,7 +67,11 @@ for t = 1:timeSteps
         for m = 1:N
             if m ~=n %can't hear itself
                 trueDistance = norm(nodes(n).posTrue - nodes(m).posTrue);
-                if listeningRange >= trueDistance
+                canHear = false;
+                if trueDistance < listeningRange
+                    canHear = binornd(1,1-(trueDistance/listeningRange)^2);
+                end
+                if canHear
                     k = findNode(nodes(n).name, nodes(m).knownNodes);
                     overwrite = k == 0 || nodes(m).knownNodes(k).timeStamp < t;
                     if overwrite
@@ -92,18 +99,20 @@ for t = 1:timeSteps
         nodes(n) = update(nodes(n), maxCost);
         
         %plot where each node thinks it is and where it actually is
-        figure(1);
-        if nodes(n).isFixed
-            plot(nodes(n).posTrue(1),nodes(n).posTrue(2),'om');
-        else
-            plot(nodes(n).posTrue(1),nodes(n).posTrue(2),'ob');
-            plot(nodes(n).posEst(1),nodes(n).posEst(2),'xr');
-            plot(nodes(n).posFit(1),nodes(n).posFit(2),'xg');
-            text(0.02+nodes(n).posEst(1),-0.02 + nodes(n).posEst(2),num2str(nodes(n).accuracy,'%.2f'));
-            text(0.02+nodes(n).posEst(1),nodes(n).posEst(2),num2str(nodes(n).name,'%u'));
+        if plotThisRound
+            figure(1);
+            if nodes(n).isFixed
+                plot(nodes(n).posTrue(1),nodes(n).posTrue(2),'om');
+            else
+                plot(nodes(n).posTrue(1),nodes(n).posTrue(2),'ob');
+                plot(nodes(n).posEst(1),nodes(n).posEst(2),'xr');
+                plot(nodes(n).posFit(1),nodes(n).posFit(2),'xg');
+                text(0.02+nodes(n).posEst(1),-0.02 + nodes(n).posEst(2),num2str(nodes(n).accuracy,'%.2f'));
+                text(0.02+nodes(n).posEst(1),nodes(n).posEst(2),num2str(nodes(n).name,'%u'));
+            end
         end
     end
-    drawnow;
+    
     clc
     errorSquareSum = 0;
     for n = (numberOfFixedNodes+1):N
@@ -114,6 +123,7 @@ for t = 1:timeSteps
     normalizedErrorRMS = sqrt(errorSquareSum/double(N - numberOfFixedNodes))/noiseLevel
     figure(2);
     semilogy(t, normalizedErrorRMS,'.b');
+    drawnow;
 end
 end
 
@@ -144,11 +154,10 @@ K = length(knownNodes);
 sqrdError = 0;
 weightSum = 0;
 for k = 1:K
-    tempNode = knownNodes(k);
-    measDist = tempNode.dist;
-    calcDist = norm(tempNode.posEst - pos);
+    measDist = knownNodes(k).dist;
+    calcDist = norm(knownNodes(k).posEst - pos);
     error = calcDist - measDist;
-    weight = (1/tempNode.accuracy)^2;
+    weight = (1/knownNodes(k).accuracy)^2;
     sqrdError = sqrdError + weight*error^2;
     weightSum = weightSum + weight;
 end

@@ -4,7 +4,6 @@
 * generalize to 3d
 * move around realPos
 * increase time between each communication
-* stochastic distance-based model for if a message is heard
 * non-zero-mean noise
 
 ## TODO improve accuracy estimate:
