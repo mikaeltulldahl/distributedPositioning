@@ -53,15 +53,15 @@ for t = 1:timeSteps
         if ~nodes(n).isFixed
             timeDiff = 1;
             nodes(n).posEst = nodes(n).posEst + timeDiff*nodes(n).vel;
-            nodes(n).vel = zeros(2,1);%TODO
+            nodes(n).vel = zeros(2,1);
             nodes(n).accuracy = forgetRate*nodes(n).accuracy;
         end
     end
     
     %each node broadcast position
-    for n = 1:N %TODO: time increase between each reading, miss some
+    for n = 1:N
         %each node listen and records data + distance
-        for m = 1:N %TODO: miss some
+        for m = 1:N
             if m ~=n %can't hear itself
                 trueDistance = norm(nodes(n).posTrue - nodes(m).posTrue);
                 if listeningRange >= trueDistance
@@ -89,10 +89,6 @@ for t = 1:timeSteps
         end
         
         % update posEst, vel, accuracy of node n using knownNodes
-        if nodes(n).accuracy <= 0
-            i = 1;
-        end
-        
         nodes(n) = update(nodes(n), maxCost);
         
         %plot where each node thinks it is and where it actually is
@@ -118,7 +114,6 @@ for t = 1:timeSteps
     normalizedErrorRMS = sqrt(errorSquareSum/double(N - numberOfFixedNodes))/noiseLevel
     figure(2);
     semilogy(t, normalizedErrorRMS,'.b');
-%     pause(0.1);
 end
 end
 
@@ -140,7 +135,6 @@ if ~node.isFixed
             node.posEst = node.posFit;
             node.accuracy = cost;
         end
-        %TODO should base new accuracy on the accuracy of the known nodes
     end
 end
 end
