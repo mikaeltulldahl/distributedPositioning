@@ -1,6 +1,6 @@
 function distributedPositioningSimulation()
+global maxCost forgetRate velocityDecay dt
 clc;
-clear;
 rng(1354) %set seed
 N = 20; %number of nodes
 numberOfFixedNodes = 5;
@@ -8,20 +8,24 @@ timeSteps = 300;
 noiseLevel = 0.02;
 maxCost = 2.5*noiseLevel;
 forgetRate = 1.1;
+velocityDecay = 0.7;
 anchorAccuracy = 1*noiseLevel;
 listeningRange = 0.8;
 plotRate = 5;
+dt = 1;
 
 %init nodes
-knownNodes = struct('name',{},'posEst',{},'vel',{},'accuracy',{}, 'dist',{},'timeStamp',{});
-nodes = repmat( struct('name', 0,'posEst',{},'posFit',{},'posTrue',{},'vel',{},'accuracy',{}, 'isFixed', false, 'knownNodes',knownNodes), N, 1 );
+knownNodes = struct('name',{},'posEst',{},'velEst',{},'accuracy',{}, 'dist',{},'timeStamp',{});
+nodes = repmat( struct('name', 0,'posEst',{},'posFit',{},'posTrue',{},'velEst',{},'velTrue',{},'accuracy',{}, 'timeStamp',{}, 'isFixed', false, 'knownNodes',knownNodes), N, 1 );
 for n=1:N
     nodes(n).name = n;
     nodes(n).posEst = zeros(2,1);
     nodes(n).posFit = zeros(2,1);
     nodes(n).posTrue = rand(2,1);
-    nodes(n).vel = zeros(2,1);
+    nodes(n).velEst = zeros(2,1);
+    nodes(n).velTrue = zeros(2,1);
     nodes(n).accuracy = 1000;
+    nodes(n).timeStamp = 1;
     nodes(n).isFixed = false;
     if n <= numberOfFixedNodes
         nodes(n).isFixed = true;
@@ -39,7 +43,7 @@ axis([0 timeSteps 0.1 1]);
 hold on
 
 for t = 1:timeSteps
-    plotThisRound = mod(t,plotRate) == 1;
+    plotThisRound = mod((t+1),plotRate) == 0;
     if plotThisRound
         figure(1);
         clf
@@ -48,23 +52,20 @@ for t = 1:timeSteps
         hold on
     end
     
-    %update pos for each node
+    %update pos for each non-fixed node
     for n = (numberOfFixedNodes+1):N
         %update real pos
+        nodes(n).velTrue = velocityDecay*dt*nodes(n).velTrue + 0.0003*randn(2,1);
+        nodes(n).posTrue = nodes(n).posTrue + dt*nodes(n).velTrue;
         
         %predict pos
-        if ~nodes(n).isFixed
-            timeDiff = 1;
-            nodes(n).posEst = nodes(n).posEst + timeDiff*nodes(n).vel;
-            nodes(n).vel = zeros(2,1);
-            nodes(n).accuracy = forgetRate*nodes(n).accuracy;
-        end
+        nodes(n) = predict(nodes(n));
     end
     
     %each node broadcast position
     for n = 1:N
-        %each node listen and records data + distance
-        for m = 1:N
+        %each non-fixed node listen and records data + distance
+        for m = (numberOfFixedNodes+1):N
             if m ~=n %can't hear itself
                 trueDistance = norm(nodes(n).posTrue - nodes(m).posTrue);
                 canHear = false;
@@ -73,21 +74,19 @@ for t = 1:timeSteps
                 end
                 if canHear
                     k = findNode(nodes(n).name, nodes(m).knownNodes);
-                    overwrite = k == 0 || nodes(m).knownNodes(k).timeStamp < t;
-                    if overwrite
-                        newNode.name = nodes(n).name;
-                        newNode.posEst = nodes(n).posEst;
-                        newNode.vel = nodes(n).vel;
-                        newNode.accuracy = nodes(n).accuracy;
-                        newNode.dist = 0;
-                        newNode.timeStamp = t;
-                        if k == 0 %insert
-                            nodes(m).knownNodes = [nodes(m).knownNodes newNode];
-                            k = length(nodes(m).knownNodes);
-                        else %overwrite
-                            nodes(m).knownNodes(k) = newNode;
-                        end
+                    newNode.name = nodes(n).name;
+                    newNode.posEst = nodes(n).posEst;
+                    newNode.velEst = nodes(n).velEst;
+                    newNode.accuracy = nodes(n).accuracy;
+                    newNode.dist = 0;
+                    newNode.timeStamp = t;
+                    if k == 0 %insert
+                        nodes(m).knownNodes = [nodes(m).knownNodes newNode];
+                        k = length(nodes(m).knownNodes);
+                    else %overwrite
+                        nodes(m).knownNodes(k) = newNode;
                     end
+                    
                     noise = noiseLevel*randn;
                     %perform distance measurement
                     nodes(m).knownNodes(k).dist = trueDistance + noise;
@@ -95,8 +94,8 @@ for t = 1:timeSteps
             end
         end
         
-        % update posEst, vel, accuracy of node n using knownNodes
-        nodes(n) = update(nodes(n), maxCost);
+        % update posEst, velEst, accuracy of node n using knownNodes
+        nodes(n) = update(nodes(n));
         
         %plot where each node thinks it is and where it actually is
         if plotThisRound
@@ -127,8 +126,25 @@ for t = 1:timeSteps
 end
 end
 
-function node = update(node, maxCost)
+function node = predict(node)
+global forgetRate velocityDecay dt
+node.posEst = node.posEst + dt*node.velEst;
+node.velEst = velocityDecay*dt*node.velEst;
+node.accuracy = forgetRate*dt*node.accuracy;
+node.timeStamp = node.timeStamp + dt;
+end
+
+function node = update(node)
+global maxCost dt
 if ~node.isFixed
+    K = length(node.knownNodes);
+    for k = 1:K
+        tempNode = node.knownNodes(k);
+        while tempNode.timeStamp < node.timeStamp
+            tempNode = predict(tempNode);
+        end
+    end
+    
     % find best fit position for all distance measurments
     startEstimate = node.posEst;
     if node.accuracy >= maxCost %if old estimate is shit
@@ -139,10 +155,13 @@ if ~node.isFixed
     if cost < maxCost %if new estimate is OK
         if node.accuracy < maxCost %if old estimate was OK
             updateRatio = (atan(0.3*node.accuracy/cost*(pi/2))/(pi/2))^2;
-            node.posEst = updateRatio*node.posFit + (1-updateRatio)*node.posEst;
+            newPosEst = updateRatio*node.posFit + (1-updateRatio)*node.posEst;
+            node.velEst = 0.3*updateRatio*(node.posFit - node.posEst)/dt + (1-0.3*updateRatio)*node.velEst;
+            node.posEst = newPosEst;
             node.accuracy = updateRatio*cost + (1-updateRatio)*node.accuracy;
         else
             node.posEst = node.posFit;
+            node.velEst = zeros(2,1);
             node.accuracy = cost;
         end
     end

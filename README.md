@@ -2,7 +2,6 @@
 
 ## TODO improve difficulty:
 * generalize to 3d
-* move around realPos
 * increase time between each communication
 * non-zero-mean noise
 
@@ -11,10 +10,6 @@
 * if knownNodes <= 2 then cost should be 0 and can't be used for estimating accuracy
 * stddev(posEst) could be a good estimate of accuracy if it is close to correct position
 * switch from scalar 'accuracy' to covariance matrix for each direction
-* each node should perform estimation update on all knownNodes  before using them
-
-## TODO improve position estimate:
-* switch from constant position to constant velocity model
 
 ## TODO misc:
 * find why system does not converge in beginning
