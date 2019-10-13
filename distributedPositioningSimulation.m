@@ -1,10 +1,11 @@
 function distributedPositioningSimulation()
-global dt dim A Q
+global dt dim A Q numberOfResamplings
 clc;
+addpath(genpath(fullfile(fileparts(mfilename('fullpath')),'matlabUtils')))
 % rng(1) %set seed
 dim = 2;
 N = 20; %number of nodes
-numberOfFixedNodes = 3;
+numberOfFixedNodes = 5;
 numberOfParticles = 300;
 timeSteps = 100;
 noiseLevel = 0.01;
@@ -17,7 +18,7 @@ A = [   1 0 dt 0;
     0 1 0 dt;
     0 0 (1-velocityDecay*dt) 0;
     0 0 0 (1-velocityDecay*dt)];
-Q = diag(dt*[0.001 0.001 0.00003 0.00003]);
+Q = diag(dt*[0.01 0.01 0.003 0.003]);
 
 
 %init nodes
@@ -34,7 +35,7 @@ for n=1:N
     nodes(n).timeStamp = 0;
     nodes(n).isFixed = false;
     nodes(n).knownNodes = nodeStruct;
-    nodes(n).particles = [rand(2,numberOfParticles);0.05*rand(2,numberOfParticles)];
+    nodes(n).particles = [rand(2,numberOfParticles);0.05*randn(2,numberOfParticles)];
     nodes(n).weights = 1/numberOfParticles*ones(numberOfParticles, 1);
 end
 
@@ -48,7 +49,7 @@ figure(2);
 clf
 grid on
 semilogy(0, maxCost);
-axis([0 timeSteps 0.1 1]);
+axis([0 timeSteps 0.1 10]);
 hold on
 
 for t = 1:timeSteps
@@ -58,7 +59,8 @@ for t = 1:timeSteps
         if ~nodes(n).isFixed
             %update real pos
             newMean = A*[nodes(n).posTrue; nodes(n).velTrue];
-            temp = mvnrnd(newMean',Q)';
+            %             temp = mvnrnd(newMean',Q)';
+            temp = mvnrnd(newMean',zeros(4))';
             
             nodes(n).posTrue = temp(1:2);
             nodes(n).velTrue = temp(3:4);
@@ -100,14 +102,17 @@ for t = 1:timeSteps
         end % for m
     end %for n
     
+    numberOfResamplings = 0;
     for n = 1:N
         if ~nodes(n).isFixed
             %update weights, normalize weights and resample using knownNodes
             nodes(n) = update(nodes(n));
         end
     end %for n
-    
     clc
+    resamplings = numberOfResamplings/N
+    
+    
     errorSquareSum = 0;
     errorCounter = 0;
     for n = 1:N
@@ -119,14 +124,14 @@ for t = 1:timeSteps
     end
     t
     normalizedErrorRMS = sqrt(errorSquareSum/errorCounter)/noiseLevel
-%     for n = 1:N
-%         if ~nodes(n).isFixed
-%             cov = nodes(n).posCov
-%             pos = nodes(n).posTrue
-%             vel = nodes(n).velTrue
-%         end
-%     end
-       
+    %     for n = 1:N
+    %         if ~nodes(n).isFixed
+    %             cov = nodes(n).posCov
+    %             pos = nodes(n).posTrue
+    %             vel = nodes(n).velTrue
+    %         end
+    %     end
+    
     figure(2);
     semilogy(t, normalizedErrorRMS,'.b');
     if mod((t+1),plotRate) == 0
@@ -143,9 +148,9 @@ for t = 1:timeSteps
             else
                 plot(nodes(n).posTrue(1),nodes(n).posTrue(2),'ob');
                 plot(nodes(n).posEst(1),nodes(n).posEst(2),'xr');
-%                 text(0.02+nodes(n).posEst(1),-0.02 + nodes(n).posEst(2),num2str(sqrt(nodes(n).posCov(1,1))*sqrt(nodes(n).posCov(2,2)),'%.2f'));
+                %                 text(0.02+nodes(n).posEst(1),-0.02 + nodes(n).posEst(2),num2str(sqrt(nodes(n).posCov(1,1))*sqrt(nodes(n).posCov(2,2)),'%.2f'));
                 text(0.02+nodes(n).posEst(1),nodes(n).posEst(2),num2str(nodes(n).name,'%u'));
-                 plot_gaussian_ellipsoid(nodes(n).posEst, nodes(n).posCov, 2, 50, gca);
+                plot_gaussian_ellipsoid(nodes(n).posEst, nodes(n).posCov, 2, 50, gca);
             end
         end% for n
     end %if plotThisRound
@@ -161,6 +166,8 @@ if node.isFixed
     node.posCov = 0.0001*eye(2);
     node.velEst = node.velTrue;
     node.velCov = zeros(2);
+    derp = 4;
+    lalala = derp;
 else
     for n = 1:size(node.particles,2)
         %propagate particles using motion model
@@ -174,8 +181,8 @@ end
 node.timeStamp = node.timeStamp + dt;
 end
 
-
 function node = update(node)
+global numberOfResamplings
 if ~node.isFixed
     K = length(node.knownNodes);
     P = size(node.particles, 2);
@@ -190,7 +197,11 @@ if ~node.isFixed
     node.weights = (1/sum(node.weights))*node.weights;
     
     %resample
-    [node.particles, node.weights] = resampleTrashHistory(4, node.weights, node.particles);
+    sortedWeights = sort(node.weights);
+    if sum(sortedWeights(1:0.3*length(sortedWeights))) < 0.05
+        [node.particles, node.weights] = resampleTrashHistory(4, node.weights, node.particles);
+        numberOfResamplings = numberOfResamplings + 1;
+    end
 end
 end
 
@@ -213,20 +224,6 @@ for k = 1:K
         index = k;
         break
     end
-end
-end
-
-function [meanOut, covOut] = weightedMeanCov(samples, weights)
-%https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Weighted_sample_covariance
-%assuming each row is a sampled random variable
-numberOfVariables = size(samples,1);
-numberOfSamples = size(samples,2);
-weights = 1/sum(weights)*weights;
-meanOut = samples*weights;
-noMeanSamples = samples - repmat(meanOut, 1, numberOfSamples);
-covOut = zeros(numberOfVariables,numberOfVariables);
-for k = 1:numberOfSamples
-    covOut = covOut + weights(k)*noMeanSamples(:,k)*noMeanSamples(:,k)';
 end
 end
 
